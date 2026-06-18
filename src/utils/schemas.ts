@@ -13,15 +13,15 @@ export const reservationFormSchema = z.object({
   customerPhone: required("Phone"),
   reservationDate: required("Date"),
   reservationTime: required("Time"),
-  guests: z.coerce.number().min(1, "Guests must be at least 1."),
+  guests: z.number().min(1, "Guests must be at least 1."),
   notes: z.string().optional(),
-  tableId: z.coerce.number().min(1, "Please select a table."),
+  tableId: z.number().min(1, "Please select a table."),
 });
 
 export const menuFormSchema = z.object({
   name: required("Name"),
   description: required("Description"),
-  price: z.coerce.number().positive("Price must be greater than zero."),
+  price: z.number().positive("Price must be greater than zero."),
   category: required("Category"),
   imageUrl: z.url("Enter a valid image URL."),
 });
