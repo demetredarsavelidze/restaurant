@@ -1,24 +1,41 @@
-import sql from "mssql";
+import tediousSql from "mssql";
+
+type SqlModule = typeof tediousSql;
+type SqlConfig = tediousSql.config | string;
+
+export let sql: SqlModule = tediousSql;
 
 const toBoolean = (value: string | undefined, fallback: boolean) => {
   if (value === undefined) return fallback;
   return ["1", "true", "yes"].includes(value.toLowerCase());
 };
 
-const getConfig = (): sql.config | string => {
-  if (process.env.MSSQL_CONNECTION_STRING) {
-    return process.env.MSSQL_CONNECTION_STRING;
+const hasValue = (value: string | undefined) => Boolean(value?.trim());
+
+const usesTrustedConnectionString = (value: string) =>
+  /(?:Trusted_Connection|Trusted Connection)\s*=\s*(?:yes|true|sspi)/i.test(value) ||
+  /Integrated Security\s*=\s*(?:true|sspi)/i.test(value);
+
+const getConnectionSettings = (): { config: SqlConfig; useWindowsAuth: boolean } => {
+  const connectionString = process.env.MSSQL_CONNECTION_STRING;
+
+  if (connectionString) {
+    return {
+      config: connectionString,
+      useWindowsAuth: usesTrustedConnectionString(connectionString),
+    };
   }
 
-  return {
+  const useSqlAuth = hasValue(process.env.SQL_USER) && hasValue(process.env.SQL_PASSWORD);
+
+  const config: tediousSql.config = {
     server: process.env.SQL_SERVER ?? "localhost",
     port: Number(process.env.SQL_PORT ?? 1433),
     database: process.env.SQL_DATABASE ?? "restaurant_reservations",
-    user: process.env.SQL_USER ?? "sa",
-    password: process.env.SQL_PASSWORD ?? "YourStrong!Passw0rd",
     options: {
       encrypt: toBoolean(process.env.SQL_ENCRYPT, false),
       trustServerCertificate: toBoolean(process.env.SQL_TRUST_SERVER_CERTIFICATE, true),
+      ...(!useSqlAuth ? { trustedConnection: true } : {}),
     },
     pool: {
       max: 10,
@@ -26,12 +43,44 @@ const getConfig = (): sql.config | string => {
       idleTimeoutMillis: 30000,
     },
   };
+
+  if (useSqlAuth) {
+    config.user = process.env.SQL_USER;
+    config.password = process.env.SQL_PASSWORD;
+  }
+
+  return {
+    config,
+    useWindowsAuth: !useSqlAuth,
+  };
 };
 
-let poolPromise: Promise<sql.ConnectionPool> | undefined;
+const loadDriver = async (useWindowsAuth: boolean): Promise<SqlModule> => {
+  if (!useWindowsAuth) {
+    sql = tediousSql;
+    return sql;
+  }
+
+  try {
+    const windowsSql = await import("mssql/msnodesqlv8");
+    sql = (windowsSql.default ?? windowsSql) as SqlModule;
+    return sql;
+  } catch (error) {
+    throw new Error(
+      "Windows Authentication requires the optional msnodesqlv8 driver. Run `npm install` on your Windows machine and make sure Microsoft ODBC Driver for SQL Server is installed.",
+      { cause: error },
+    );
+  }
+};
+
+let poolPromise: Promise<tediousSql.ConnectionPool> | undefined;
 
 export const getPool = () => {
-  poolPromise ??= sql.connect(getConfig());
+  poolPromise ??= (async () => {
+    const { config, useWindowsAuth } = getConnectionSettings();
+    const driver = await loadDriver(useWindowsAuth);
+    return driver.connect(config);
+  })();
   return poolPromise;
 };
 
@@ -42,5 +91,3 @@ export const closePool = async () => {
     poolPromise = undefined;
   }
 };
-
-export { sql };
