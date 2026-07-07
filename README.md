@@ -1,7 +1,7 @@
 # Aurora Table - Restaurant Reservation System
 
 A complete production-style restaurant reservation system with a React/Vite frontend,
-Express TypeScript API, JWT admin authentication, Prisma ORM, and PostgreSQL.
+Express TypeScript API, JWT admin authentication, SQL Server 2022, and the `mssql` package.
 
 ## Stack
 
@@ -10,7 +10,7 @@ Express TypeScript API, JWT admin authentication, Prisma ORM, and PostgreSQL.
 - Axios, React Hook Form, Zod, react-qr-code
 - Node.js, Express, TypeScript
 - JWT authentication, bcrypt password hashing
-- Prisma ORM with PostgreSQL
+- SQL Server 2022 with parameterized `mssql` queries
 
 ## Features
 
@@ -26,7 +26,7 @@ Express TypeScript API, JWT admin authentication, Prisma ORM, and PostgreSQL.
 ## Requirements
 
 - Node.js 20+
-- PostgreSQL database
+- SQL Server 2022 database
 - npm
 
 ## Setup
@@ -43,20 +43,25 @@ Express TypeScript API, JWT admin authentication, Prisma ORM, and PostgreSQL.
    cp .env.example .env
    ```
 
-3. Update `.env` with your PostgreSQL connection string and JWT secret:
+3. Update `.env` with your SQL Server connection settings and JWT secret:
 
    ```env
-   DATABASE_URL="postgresql://postgres:postgres@localhost:5432/restaurant_reservations?schema=public"
    JWT_SECRET="replace-with-a-long-random-secret"
    PORT=4000
    CLIENT_URL="http://localhost:5173"
+   SQL_SERVER="localhost"
+   SQL_PORT=1433
+   SQL_DATABASE="restaurant_reservations"
+   SQL_USER="sa"
+   SQL_PASSWORD="YourStrong!Passw0rd"
+   SQL_ENCRYPT=false
+   SQL_TRUST_SERVER_CERTIFICATE=true
    ```
 
-4. Generate Prisma Client and run migrations:
+4. Create the SQL Server database, then initialize the schema:
 
    ```bash
-   npm run prisma:generate
-   npm run prisma:migrate
+   npm run db:init
    ```
 
 5. Seed the database:
@@ -84,8 +89,7 @@ The frontend runs on `http://localhost:5173` and the API runs on `http://localho
 - `npm run dev:client` - start Vite only
 - `npm run dev:server` - start Express API only
 - `npm run build` - type-check and build frontend/server
-- `npm run prisma:generate` - generate Prisma Client
-- `npm run prisma:migrate` - run Prisma migrations
+- `npm run db:init` - create SQL Server tables, constraints, and indexes
 - `npm run seed` - seed admin, tables, menu items, and testimonials
 
 ## API Endpoints
@@ -138,8 +142,8 @@ src/
 
 server/
   controllers/
+  db/
   middleware/
-  prisma/
   routes/
   services/
   types/
@@ -149,5 +153,5 @@ server/
 ## Notes
 
 - Public reservation creation validates required name, email, phone, date, time, guests, and table selection.
-- The database enforces a unique reservation per table/date/time to prevent double booking.
+- SQL Server enforces a unique reservation per table/date/time to prevent double booking.
 - Admin-only API endpoints require an `Authorization: Bearer <token>` header.
