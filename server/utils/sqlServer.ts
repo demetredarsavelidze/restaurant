@@ -1,7 +1,10 @@
 import tediousSql from "mssql";
 
 type SqlModule = typeof tediousSql;
-type SqlConfig = tediousSql.config | string;
+type Msnodesqlv8Config = tediousSql.config & {
+  connectionString: string;
+};
+type SqlConfig = tediousSql.config | Msnodesqlv8Config | string;
 
 export let sql: SqlModule = tediousSql;
 
@@ -16,6 +19,34 @@ const usesTrustedConnectionString = (value: string) =>
   /(?:Trusted_Connection|Trusted Connection)\s*=\s*(?:yes|true|sspi)/i.test(value) ||
   /Integrated Security\s*=\s*(?:true|sspi)/i.test(value);
 
+const toOdbcBoolean = (value: string | undefined, fallback: boolean) =>
+  toBoolean(value, fallback) ? "Yes" : "No";
+
+const getSqlServerAddress = () => {
+  const server = process.env.SQL_SERVER ?? "localhost";
+  const port = process.env.SQL_PORT;
+
+  if (!hasValue(port) || server.includes("\\") || server.includes(",")) {
+    return server;
+  }
+
+  return `${server},${port}`;
+};
+
+const getWindowsAuthConnectionString = () => {
+  const driver = process.env.SQL_ODBC_DRIVER ?? "ODBC Driver 18 for SQL Server";
+  const database = process.env.SQL_DATABASE ?? "restaurant_reservations";
+
+  return [
+    `Driver={${driver}}`,
+    `Server=${getSqlServerAddress()}`,
+    `Database=${database}`,
+    "Trusted_Connection=Yes",
+    `Encrypt=${toOdbcBoolean(process.env.SQL_ENCRYPT, false)}`,
+    `TrustServerCertificate=${toOdbcBoolean(process.env.SQL_TRUST_SERVER_CERTIFICATE, true)}`,
+  ].join(";");
+};
+
 const getConnectionSettings = (): { config: SqlConfig; useWindowsAuth: boolean } => {
   const connectionString = process.env.MSSQL_CONNECTION_STRING;
 
@@ -28,6 +59,22 @@ const getConnectionSettings = (): { config: SqlConfig; useWindowsAuth: boolean }
 
   const useSqlAuth = hasValue(process.env.SQL_USER) && hasValue(process.env.SQL_PASSWORD);
 
+  if (!useSqlAuth) {
+    return {
+      config: {
+        server: process.env.SQL_SERVER ?? "localhost",
+        database: process.env.SQL_DATABASE ?? "restaurant_reservations",
+        connectionString: getWindowsAuthConnectionString(),
+        pool: {
+          max: 10,
+          min: 0,
+          idleTimeoutMillis: 30000,
+        },
+      },
+      useWindowsAuth: true,
+    };
+  }
+
   const config: tediousSql.config = {
     server: process.env.SQL_SERVER ?? "localhost",
     port: Number(process.env.SQL_PORT ?? 1433),
@@ -35,7 +82,6 @@ const getConnectionSettings = (): { config: SqlConfig; useWindowsAuth: boolean }
     options: {
       encrypt: toBoolean(process.env.SQL_ENCRYPT, false),
       trustServerCertificate: toBoolean(process.env.SQL_TRUST_SERVER_CERTIFICATE, true),
-      ...(!useSqlAuth ? { trustedConnection: true } : {}),
     },
     pool: {
       max: 10,
@@ -51,7 +97,7 @@ const getConnectionSettings = (): { config: SqlConfig; useWindowsAuth: boolean }
 
   return {
     config,
-    useWindowsAuth: !useSqlAuth,
+    useWindowsAuth: false,
   };
 };
 
