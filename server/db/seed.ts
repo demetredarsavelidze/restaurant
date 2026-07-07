@@ -1,8 +1,6 @@
 import bcrypt from "bcrypt";
 import "dotenv/config";
-import { PrismaClient } from "@prisma/client";
-
-const prisma = new PrismaClient();
+import { closePool, getPool, sql } from "../utils/sqlServer.js";
 
 const menuItems = [
   {
@@ -152,58 +150,108 @@ const testimonials = [
 ];
 
 async function main() {
+  const pool = await getPool();
   const password = await bcrypt.hash("Admin123!", 12);
 
-  await prisma.user.upsert({
-    where: { email: "admin@restaurant.com" },
-    update: { password, name: "Restaurant Admin", role: "ADMIN" },
-    create: {
-      name: "Restaurant Admin",
-      email: "admin@restaurant.com",
-      password,
-      role: "ADMIN",
-    },
-  });
+  await pool
+    .request()
+    .input("name", sql.NVarChar(255), "Restaurant Admin")
+    .input("email", sql.NVarChar(320), "admin@restaurant.com")
+    .input("password", sql.NVarChar(255), password)
+    .query(`
+      IF EXISTS (SELECT 1 FROM [User] WHERE [email] = @email)
+      BEGIN
+        UPDATE [User]
+        SET [name] = @name,
+            [password] = @password,
+            [role] = N'ADMIN',
+            [updatedAt] = SYSUTCDATETIME()
+        WHERE [email] = @email;
+      END
+      ELSE
+      BEGIN
+        INSERT INTO [User] ([name], [email], [password], [role])
+        VALUES (@name, @email, @password, N'ADMIN');
+      END
+    `);
 
-  for (const item of menuItems) {
-    await prisma.menuItem.upsert({
-      where: { id: menuItems.indexOf(item) + 1 },
-      update: item,
-      create: item,
-    });
+  for (const [index, item] of menuItems.entries()) {
+    await pool
+      .request()
+      .input("id", sql.Int, index + 1)
+      .input("name", sql.NVarChar(255), item.name)
+      .input("description", sql.NVarChar(sql.MAX), item.description)
+      .input("price", sql.Decimal(10, 2), item.price)
+      .input("category", sql.NVarChar(120), item.category)
+      .input("imageUrl", sql.NVarChar(2048), item.imageUrl)
+      .query(`
+        IF EXISTS (SELECT 1 FROM [MenuItem] WHERE [id] = @id)
+        BEGIN
+          UPDATE [MenuItem]
+          SET [name] = @name,
+              [description] = @description,
+              [price] = @price,
+              [category] = @category,
+              [imageUrl] = @imageUrl,
+              [updatedAt] = SYSUTCDATETIME()
+          WHERE [id] = @id;
+        END
+        ELSE
+        BEGIN
+          SET IDENTITY_INSERT [MenuItem] ON;
+          INSERT INTO [MenuItem] ([id], [name], [description], [price], [category], [imageUrl])
+          VALUES (@id, @name, @description, @price, @category, @imageUrl);
+          SET IDENTITY_INSERT [MenuItem] OFF;
+        END
+      `);
   }
 
   const capacities = [2, 2, 2, 4, 4, 4, 4, 4, 6, 6, 2, 2, 4, 4, 6, 6, 8, 8, 4, 10];
 
-  for (let index = 0; index < 20; index += 1) {
-    await prisma.restaurantTable.upsert({
-      where: { tableNumber: index + 1 },
-      update: {
-        capacity: capacities[index],
-        status: "AVAILABLE",
-      },
-      create: {
-        tableNumber: index + 1,
-        capacity: capacities[index],
-        status: "AVAILABLE",
-      },
-    });
+  for (const [index, capacity] of capacities.entries()) {
+    await pool
+      .request()
+      .input("tableNumber", sql.Int, index + 1)
+      .input("capacity", sql.Int, capacity)
+      .query(`
+        IF EXISTS (SELECT 1 FROM [RestaurantTable] WHERE [tableNumber] = @tableNumber)
+        BEGIN
+          UPDATE [RestaurantTable]
+          SET [capacity] = @capacity,
+              [status] = N'AVAILABLE',
+              [updatedAt] = SYSUTCDATETIME()
+          WHERE [tableNumber] = @tableNumber;
+        END
+        ELSE
+        BEGIN
+          INSERT INTO [RestaurantTable] ([tableNumber], [capacity], [status])
+          VALUES (@tableNumber, @capacity, N'AVAILABLE');
+        END
+      `);
   }
 
-  await prisma.testimonial.deleteMany();
+  await pool.request().query("DELETE FROM [Testimonial];");
 
   for (const testimonial of testimonials) {
-    await prisma.testimonial.create({ data: testimonial });
+    await pool
+      .request()
+      .input("customerName", sql.NVarChar(255), testimonial.customerName)
+      .input("comment", sql.NVarChar(sql.MAX), testimonial.comment)
+      .input("rating", sql.Int, testimonial.rating)
+      .query(`
+        INSERT INTO [Testimonial] ([customerName], [comment], [rating])
+        VALUES (@customerName, @comment, @rating);
+      `);
   }
+
+  console.log("SQL Server database seeded successfully.");
 }
 
 main()
-  .then(async () => {
-    await prisma.$disconnect();
-    console.log("Database seeded successfully.");
-  })
-  .catch(async (error) => {
+  .catch((error) => {
     console.error(error);
-    await prisma.$disconnect();
-    process.exit(1);
+    process.exitCode = 1;
+  })
+  .finally(async () => {
+    await closePool();
   });

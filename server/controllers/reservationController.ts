@@ -6,7 +6,7 @@ import {
   listReservations,
   updateReservation,
 } from "../services/reservationService.js";
-import { prisma } from "../utils/prisma.js";
+import { getPool, sql } from "../utils/sqlServer.js";
 import { reservationSchema, reservationUpdateSchema } from "../utils/validation.js";
 
 export const getReservations = async (req: Request, res: Response) => {
@@ -46,6 +46,7 @@ export const removeReservation = async (req: Request, res: Response) => {
 export const getDashboardStats = async (_req: Request, res: Response) => {
   const today = new Date();
   const todayUtc = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()));
+  const pool = await getPool();
 
   const [
     totalReservations,
@@ -54,18 +55,25 @@ export const getDashboardStats = async (_req: Request, res: Response) => {
     availableTables,
     totalMenuItems,
   ] = await Promise.all([
-    prisma.reservation.count(),
-    prisma.reservation.count({ where: { reservationDate: todayUtc } }),
-    prisma.restaurantTable.count({ where: { status: "OCCUPIED" } }),
-    prisma.restaurantTable.count({ where: { status: "AVAILABLE" } }),
-    prisma.menuItem.count(),
+    pool.request().query<{ total: number }>("SELECT COUNT(*) AS [total] FROM [Reservation];"),
+    pool
+      .request()
+      .input("today", sql.DateTime2, todayUtc)
+      .query<{ total: number }>("SELECT COUNT(*) AS [total] FROM [Reservation] WHERE [reservationDate] = @today;"),
+    pool
+      .request()
+      .query<{ total: number }>("SELECT COUNT(*) AS [total] FROM [RestaurantTable] WHERE [status] = N'OCCUPIED';"),
+    pool
+      .request()
+      .query<{ total: number }>("SELECT COUNT(*) AS [total] FROM [RestaurantTable] WHERE [status] = N'AVAILABLE';"),
+    pool.request().query<{ total: number }>("SELECT COUNT(*) AS [total] FROM [MenuItem];"),
   ]);
 
   res.json({
-    totalReservations,
-    todaysReservations,
-    occupiedTables,
-    availableTables,
-    totalMenuItems,
+    totalReservations: totalReservations.recordset[0].total,
+    todaysReservations: todaysReservations.recordset[0].total,
+    occupiedTables: occupiedTables.recordset[0].total,
+    availableTables: availableTables.recordset[0].total,
+    totalMenuItems: totalMenuItems.recordset[0].total,
   });
 };

@@ -1,4 +1,3 @@
-import { Prisma } from "@prisma/client";
 import type { NextFunction, Request, Response } from "express";
 import { ZodError } from "zod";
 import { HttpError } from "../utils/httpError.js";
@@ -13,6 +12,8 @@ export const errorHandler = (
   res: Response,
   _next: NextFunction,
 ) => {
+  const sqlError = error as { number?: number } | undefined;
+
   if (error instanceof ZodError) {
     return res.status(400).json({
       message: "Please correct the highlighted fields.",
@@ -23,7 +24,7 @@ export const errorHandler = (
     });
   }
 
-  if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+  if (sqlError?.number === 2601 || sqlError?.number === 2627) {
     return res.status(409).json({
       message: "This resource conflicts with an existing record.",
     });

@@ -1,11 +1,14 @@
 import type { Request, Response } from "express";
-import { prisma } from "../utils/prisma.js";
+import { getPool } from "../utils/sqlServer.js";
+import type { DbTestimonial } from "../types/db.js";
 
 export const getTestimonials = async (_req: Request, res: Response) => {
-  const testimonials = await prisma.testimonial.findMany({
-    orderBy: { createdAt: "desc" },
-    take: 6,
-  });
+  const pool = await getPool();
+  const result = await pool.request().query<DbTestimonial>(`
+    SELECT TOP (6) [id], [customerName], [comment], [rating], [createdAt]
+    FROM [Testimonial]
+    ORDER BY [createdAt] DESC;
+  `);
 
-  res.json(testimonials);
+  res.json(result.recordset);
 };
